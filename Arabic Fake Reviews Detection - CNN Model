@@ -1,0 +1,112 @@
+pip install -r requirements.txt
+# ===============================================
+# Arabic Fake Reviews Detection - CNN Model
+# ===============================================
+
+import pandas as pd
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import SnowballStemmer
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer
+from keras.models import Sequential
+from keras.layers import Conv1D, Activation, Dropout, MaxPooling1D, Flatten, Dense
+import keras
+
+# ===============================================
+# Download necessary NLTK data
+# ===============================================
+nltk.download('stopwords')
+nltk.download('punkt')
+
+# ===============================================
+# Define Arabic text preprocessing
+# ===============================================
+stop_words = set(stopwords.words('arabic'))
+stemmer = SnowballStemmer("arabic")
+
+def preprocess(text):
+    """
+    Normalize Arabic text, remove diacritics, repeated characters,
+    tokenize, remove stopwords, and apply stemming.
+    """
+    # Normalize letters
+    text = re.sub(r"[إأآا]", "ا", text)
+    text = re.sub(r"[ى]", "ي", text)
+    text = re.sub(r"[ؤئ]", "ء", text)
+    text = re.sub(r"[ة]", "ه", text)
+
+    # Remove diacritics and repeated characters
+    text = re.sub(r"[ًٌٍَُِّْـ]", "", text)
+    text = re.sub(r"(.)\1+", r"\1", text)
+
+    # Tokenize, remove stopwords, stem
+    tokens = word_tokenize(text)
+    tokens = [stemmer.stem(w) for w in tokens if w not in stop_words]
+
+    return ' '.join(tokens)
+
+# ===============================================
+# Load and preprocess dataset
+# ===============================================
+# Dataset should contain 'text' and 'label' columns
+df = pd.read_excel('/content/Balanced_Data.xlsx')  
+df['text'] = df['text'].astype(str).apply(preprocess)
+
+# Map labels: 'fake' -> 0, 'real' -> 1
+df['label'] = df['label'].map({'fake': 0, 'real': 1})
+
+# ===============================================
+# Split data into training and testing sets
+# ===============================================
+X_train, X_test, y_train, y_test = train_test_split(df['text'], df['label'], test_size=0.2)
+
+# ===============================================
+# Convert text to numeric vectors using Bag of Words
+# ===============================================
+vectorizer = CountVectorizer(max_features=5000)
+X_train = vectorizer.fit_transform(X_train).toarray()
+X_test = vectorizer.transform(X_test).toarray()
+
+# Reshape input for CNN
+X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+
+# One-hot encode labels
+y_train = pd.get_dummies(y_train)
+y_test = pd.get_dummies(y_test)
+
+# ===============================================
+# Define CNN model
+# ===============================================
+model = Sequential([
+    Conv1D(128, 5, padding='same', input_shape=(5000, 1)),
+    Activation('relu'),
+    Dropout(0.2),
+    MaxPooling1D(pool_size=8),
+    Flatten(),
+    Dense(2, activation='softmax')
+])
+
+model.compile(
+    loss='categorical_crossentropy',
+    optimizer=keras.optimizers.RMSprop(1e-5, decay=1e-6),
+    metrics=['accuracy']
+)
+
+# ===============================================
+# Train the CNN model
+# ===============================================
+model.fit(
+    X_train, y_train,
+    batch_size=32,
+    epochs=10,
+    validation_split=0.2
+)
+
+# ===============================================
+# Save the trained model
+# ===============================================
+model.save("arabic_fake_review_cnn.h5")
